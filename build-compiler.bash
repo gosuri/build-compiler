@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
 
-function init() {
-  repo=${1}
-  cachedir=${2}
-  if [[ -z "${cachedir}" ]]; then
-    cachedir="/var/containers/app-compiler"
+function run() {
+  # create cache directory if missing
+  if [[ ! -d "${cachedir}" ]]; then
+    mkdir -p ${cachedir}
   fi
-  bash_sugar_init || exit 2
-}
 
-function validate() {
-  abort_if_missing_command git "git is required to run ${0}. Install using sudo apt-get install git"
+  # clean any old code
+  clean
 
-  if [[ -z "${repo}" ]]; then
-    echo $(help)
-    abort "\nerror: app source is missing"
-  fi
+  # fetch the new app code
+  get_app_source
+  build_docker_image
+  # archive
 }
 
 function clean() {
@@ -40,25 +37,29 @@ EOF
   docker build --tag app-compiler $cachedir
 }
 
-function main() {
-  # create cache directory if missing
-  if [[ ! -d "${cachedir}" ]]; then
-    mkdir -p ${cachedir}
-  fi
-
-  # clean any old code
-  clean
-
-  # fetch the new app code
-  get_app_source
-  build_docker_image
-  # archive
-}
-
 function help() {
   echo -e "usage: ${0} GIT_REPO [CACHE_DIR]"
 }
 
-init # initialize helper functions
+function init() {
+  if [[ -z "${cachedir}" ]]; then
+    cachedir="/var/containers/app-compiler"
+  fi
+  bash_sugar_init || exit 2
+}
+
+function validate() {
+  abort_if_missing_command git "git is required to run ${0}. Install using sudo apt-get install git"
+
+  if [[ -z "${repo}" ]]; then
+    echo $(help)
+    abort "\nerror: app source is missing"
+  fi
+}
+
+repo=${1}
+cachedir=${2}
+
+init
 validate
-main
+run
