@@ -41,13 +41,6 @@ function help() {
   echo -e "usage: ${0} GIT_REPO [CACHE_DIR]"
 }
 
-function init() {
-  if [[ -z "${cachedir}" ]]; then
-    cachedir="/var/containers/app-compiler"
-  fi
-  bash_sugar_init || exit 2
-}
-
 function validate() {
   abort_if_missing_command git "git is required to run ${0}. Install using sudo apt-get install git"
 
@@ -55,6 +48,13 @@ function validate() {
     echo $(help)
     abort "\nerror: app source is missing"
   fi
+}
+
+function init() {
+  if [[ -z "${cachedir}" ]]; then
+    cachedir=${TMPDIR}/build-compiler-$$.$RANDOM
+  fi
+  bash_sugar_init || exit 2
 }
 
 repo=${1}
