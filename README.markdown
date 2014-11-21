@@ -8,6 +8,6 @@ Container based build compiler (Docker/Ubuntu 14.04)
       unzip master.zip &&\
       cd build-compiler-master &&\
       make install &&\
-      cd ..
-      rm build-compiler-master
+      cd .. &&\
+      rm build-compiler-master &&\
       rm master.zip

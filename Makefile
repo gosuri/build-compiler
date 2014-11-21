@@ -14,7 +14,7 @@ $(PROGRAM): $(SOURCES)
 	mv $@+ $@
 	chmod 0755 $@
 
-install:
+install: $(PROGRAM)
 	install -d "$(execdir)"
 	install -m 0755 $(PROGRAM) "$(execdir)/$(PROGRAM)"
 
