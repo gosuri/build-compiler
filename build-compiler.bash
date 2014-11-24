@@ -63,8 +63,12 @@ function run() {
  
   # build base runtime container if it doesnt exists
   app_runtime_container_exists       || build_app_runtime_container
-  
+
+  # build runtime image
   build_runtime_image
+ 
+  # clean up the logfile and temp directory
+  clean
 }
 
 function app_base_container_exists() {
@@ -72,10 +76,10 @@ function app_base_container_exists() {
 }
 
 function build_app_base_container() {
-  debug "building application base container"
+  log "building application base container"
   mkdir -p "${cachedir}/app-base"
   tee "${cachedir}/app-base/Dockerfile" > /dev/null <<EOF
-Pull the latest canonical ubuntu image
+# Pull the latest canonical ubuntu image
 FROM ubuntu
 
 ENV RUBY_VERSION ${RUBY_VERSION}
@@ -86,18 +90,19 @@ ENV GEM_PATH /app/vendor/bundle
 # and node executables in the path
 ENV PATH /app/bin:/app/vendor/bundle/bin:/app/vendor/ruby/${RUBY_VERSION}/bin:/app/vendor/node/${NODE_VERSION}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EOF
-  docker build --tag app-base ${cachedir}/app-base &>> ${logfile}
+  docker build --tag app-base ${cachedir}/app-base >> ${logfile} 2>&1
 }
 
 function clean() {
   if [[  -d "${cachedir}" ]]; then
     rm -rf ${cachedir}/*
   fi
+  rm -f $logfile
 }
 
 function get_app_source() {
   info "fetching application source"
-  git clone ${repo} ${cachedir}/app-compiler/app --depth 1 2>> ${logfile}
+  git clone ${repo} ${cachedir}/app-compiler/app --depth 1 >> ${logfile} 2>&1
   log "successfully cloned source to ${cachedir}/app-compiler/app"
 }
 
@@ -106,7 +111,7 @@ function ruby_compiler_base_container_exists() {
 }
 
 function build_ruby_compiler_base_container {
-  debug "building base ruby compiler container"
+  log "building base ruby compiler container"
   local dir="${cachedir}/ruby-compiler-base"
   local pkgs=$(printf "%s " $COMPILER_PACKAGES)
 
@@ -132,7 +137,7 @@ RUN mv node-v${NODE_VERSION}-linux-x64/* /app/vendor/node/${NODE_VERSION}
 RUN gem install rubygems-update bundler --no-ri --no-rdoc
 RUN update_rubygems
 EOF
-  docker build --tag ruby-compiler-base ${dir} &>> ${logfile}
+  docker build --tag ruby-compiler-base ${dir} >> ${logfile} 2>&1
 }
 
 function app_compiler_container_exists() {
@@ -140,11 +145,11 @@ function app_compiler_container_exists() {
 }
 
 function build_app_compiler_container() {
-  debug "building app-compiler container"
+  log "building app-compiler container"
   local dir="${cachedir}/app-compiler"
   mkdir -p ${dir}
   echo "FROM ruby-compiler-base" > "${dir}/Dockerfile"
-  docker build --tag app-compiler ${dir} &>> ${logfile}
+  docker build --tag app-compiler ${dir} >> ${logfile} 2>&1
 }
 
 function compile_app() {
@@ -159,7 +164,7 @@ WORKDIR /app
 RUN bundle install --path=vendor/bundle --binstubs vendor/bundle/bin  --jobs=4 --retry=3
 RUN bundle exec rake assets:precompile
 EOF
-  docker build --tag app-compiler $dir &>> ${logfile}
+  docker build --tag app-compiler $dir >> ${logfile} 2>&1
 }
 
 function copy_compiled_app() {
@@ -167,13 +172,9 @@ function copy_compiled_app() {
   local dir=${cachedir}/app-runtime
   mkdir -p ${dir}
   docker cp ${id}:/app ${dir}
-  debug "application compiled to ${dir}"
+  log "application compiled to ${dir}"
   docker rm --force ${id} > /dev/null
-  debug "removing compiler copy container ${id}"
-}
-
-function build_base_runtime_container() {
- echo "hi"
+  log "removing compiler copy container ${id}"
 }
 
 function build_compiler_image() {
@@ -186,8 +187,8 @@ ENV RAILS_ENV production
 RUN bundle install --path=vendor/bundle --binstubs vendor/bundle/bin  --jobs=4 --retry=3
 RUN bundle exec rake assets:precompile
 EOF
-  debug "building compiler image using ${cachedir}/Dockerfile"
-  docker build --tag app-compiler $cachedir &>> ${logfile}
+  log "building compiler image using ${cachedir}/Dockerfile"
+  docker build --tag app-compiler $cachedir >> ${logfile} 2>&1
 }
 
 function app_runtime_container_exists() {
@@ -195,7 +196,7 @@ function app_runtime_container_exists() {
 }
 
 function build_app_runtime_container() {
- debug "building app runtime base container"
+ log "building app runtime base container"
  local secretsbase=$(date +%s | sha256sum | base64 | head -c 64)
  local pkgs=$(printf "%s " $RUNTIME_PACKAGES)
  local dir="${cachedir}/app-runtime"
@@ -206,19 +207,20 @@ ENV RAILS_ENV production
 ENV SECRET_KEY_BASE ${secretsbase}
 RUN mkdir -p /app
 EOF
-  docker build --tag app-runtime ${dir} &>> ${logfile}
+  docker build --tag app-runtime ${dir} >> ${logfile} 2>&1
 }
 
 function build_runtime_image() {
-  debug "building runtime image"
+  info "building app-runtime container image"
   dir="${cachedir}/app-runtime"
   mkdir -p ${dir}
   cat > ${dir}/Dockerfile <<EOF
 FROM app-runtime
 ADD app app
-WORKDIR app
+WORKDIR /app
 EOF
-  docker build --tag app-runtime ${dir} &>> ${logfile}
+  docker build --tag app-runtime ${dir} >> ${logfile} 2>&1
+  info "application successfully built"
 }
 
 function help() {
@@ -241,27 +243,26 @@ function info() {
 }
 
 function log() {
-  local msg="                    ${*}"
-  echo -e "${msg}"
+  local msg="${*}"
+  if [ "${DEBUG}" == "true" ]; then
+    echo -e "[debug] ${msg}"
+  fi
   echo -e "${msg}" >> ${logfile}
 }
 
-function debug() {
-  [ "${DEBUG}" == "true" ] && log ${*}
-}
-
 function init() {
-  debug "using logfile ${logfile}"
+  log "using logfile ${logfile}"
   if [[ -z "${cachedir}" ]]; then
     cachedir=$(mktemp -d --tmpdir $TMPDIR build-compiler-XXXXXXX)
   fi
-  debug "using cache directory ${cachedir}"
+  log "using cache directory ${cachedir}"
+  logfile="${cachedir}/log"
   bash_sugar_init || exit 2
 }
 
 repo=${1}
 cachedir=${2}
-logfile=$(mktemp --tmpdir $TMPDIR build-compiler-XXXXXXX.log)
+logfile="${cachedir}/log"
 
 if [ -z "${DEBUG}" ]; then
   DEBUG=false
